@@ -4,6 +4,8 @@ A specialized fork of [KernelSU-Next](https://github.com/rifsxd/KernelSU-Next) w
 
 > **⚠️ Important:** You **must** install the Manager APK from this repository's [Releases](https://github.com/sarabpal-dev/KernelSU-Next/releases) page. The upstream KernelSU-Next Manager will **not** detect the LKM module because it is signed with a different key. The userspace soft-reboot feature requires matched signatures between the Manager and the kernel module to communicate over ioctl.
 
+[2026-08-22 15-25-13.webm](https://github.com/user-attachments/assets/2da3ab6e-195e-434f-9785-d7a368312a41)
+
 ---
 
 ## Features
