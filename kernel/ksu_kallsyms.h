@@ -10,6 +10,7 @@
 #include <linux/types.h>
 #include <linux/version.h>
 #include <linux/mm.h>
+#include <linux/jump_label.h>
 
 /* CFI bypass support */
 #ifdef CONFIG_CFI_CLANG
@@ -216,6 +217,10 @@ struct ksu_symbols {
                                                          void (*cleanup)(struct subprocess_info *info),
                                                          void *data);
     int (*call_usermodehelper_exec)(struct subprocess_info *info, int wait);
+
+    /* Jump label / static key functions (not exported on Samsung kernels) */
+    void (*static_key_enable)(struct static_key *key);
+    void (*static_key_disable)(struct static_key *key);
 };
 
 

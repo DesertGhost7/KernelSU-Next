@@ -363,6 +363,17 @@ int ksu_init_symbols(void)
         pr_warn("ksu: fsnotify symbols not found, module may fail to load\n");
     }
 
+    /* Jump label / static key functions (not exported on Samsung kernels) */
+    ksu_syms.static_key_enable = (void *)ksu_lookup_name_unrestricted("static_key_enable");
+    ksu_syms.static_key_disable = (void *)ksu_lookup_name_unrestricted("static_key_disable");
+    if (!ksu_syms.static_key_enable || !ksu_syms.static_key_disable) {
+        pr_warn("ksu: static_key_enable/disable not found, jump labels will not work\n");
+    } else {
+        pr_info("ksu: static_key_enable: 0x%lx, static_key_disable: 0x%lx\n",
+                (unsigned long)ksu_syms.static_key_enable,
+                (unsigned long)ksu_syms.static_key_disable);
+    }
+
     pr_info("ksu: symbol resolution complete, %d critical missing\n", missing);
     
     return missing > 0 ? -ENOENT : 0;

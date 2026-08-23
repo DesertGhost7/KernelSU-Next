@@ -485,7 +485,8 @@ void ksu_selinux_hide_handle_second_stage()
     initialize_fake_status();
     // https://github.com/torvalds/linux/blame/e8c2f9fdadee7cbc75134dc463c1e0d856d6e5c7/security/selinux/selinuxfs.c#L2014
     if (fake_status) {
-        static_key_disable(&fake_status_initialize_key.key);
+        if (ksu_syms.static_key_disable)
+            ksu_syms.static_key_disable(&fake_status_initialize_key.key);
     } else {
         pr_warn("selinux_hide: fake status need late initialization\n");
     }
@@ -493,7 +494,8 @@ void ksu_selinux_hide_handle_second_stage()
 
 void ksu_selinux_hide_handle_post_fs_data()
 {
-    static_key_disable(&fake_status_initialize_key.key);
+    if (ksu_syms.static_key_disable)
+        ksu_syms.static_key_disable(&fake_status_initialize_key.key);
     if (!fake_status) {
         pr_err("selinux_hide: fake status is not initialized after post-fs-data!\n");
     }
@@ -529,7 +531,8 @@ void __init ksu_selinux_hide_init()
     if (ksu_late_loaded) {
         initialize_fake_status();
     } else {
-        static_key_enable(&fake_status_initialize_key.key);
+        if (ksu_syms.static_key_enable)
+            ksu_syms.static_key_enable(&fake_status_initialize_key.key);
     }
     hook_selinux_status_open();
 }
