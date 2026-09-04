@@ -44,7 +44,7 @@ static inline int ksu_fsnotify_add_inode_mark(struct fsnotify_mark *mark, struct
 {
     if (!ksu_syms.fsnotify_add_mark)
         return -ENOSYS;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)
     return ksu_syms.fsnotify_add_mark(mark, (struct fsnotify_mark_connector __rcu **)&inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups, NULL);
 #else
     return ((int (*)(struct fsnotify_mark *, void *, unsigned int, int))ksu_syms.fsnotify_add_mark)(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups);
