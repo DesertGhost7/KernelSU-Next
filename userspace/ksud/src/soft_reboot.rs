@@ -111,11 +111,48 @@ fn signal_oplus_boot_completed() {
     }
 }
 
+/// Check if the current device belongs to the OPlus family (OnePlus, OPPO, Realme)
+pub fn is_oplus() -> bool {
+    // 1. Check OPlus-exclusive kernel watchdog and procfs nodes
+    if Path::new(OPLUS_INIT_WATCHDOG_KICK).exists()
+        || Path::new(OPLUS_PMIC_WD).exists()
+        || Path::new(OPLUS_PWK_MONITOR).exists()
+        || Path::new("/proc/shutdown_detect").exists()
+        || Path::new("/proc/oplus_version").exists()
+    {
+        return true;
+    }
+
+    // 2. Check OPlus ROM properties
+    if crate::utils::getprop("ro.build.version.oplusrom").is_some()
+        || crate::utils::getprop("ro.oplus.version.myos").is_some()
+    {
+        return true;
+    }
+
+    // 3. Check Brand / Manufacturer
+    let is_oplus_brand = |prop: &str| -> bool {
+        crate::utils::getprop(prop)
+            .map(|val| {
+                let lower = val.to_ascii_lowercase();
+                lower == "oneplus" || lower == "oppo" || lower == "realme"
+            })
+            .unwrap_or(false)
+    };
+
+    is_oplus_brand("ro.product.manufacturer")
+        || is_oplus_brand("ro.product.brand")
+        || is_oplus_brand("ro.product.odm.brand")
+}
+
 /// Spawn a background thread that kicks the OPlus watchdogs every 5 seconds.
 /// Returns a stop flag that should be set to true when the kicker is no
 /// longer needed (after boot completes).
 fn spawn_watchdog_kicker() -> Arc<AtomicBool> {
     let stop = Arc::new(AtomicBool::new(false));
+    if !is_oplus() {
+        return stop;
+    }
     let stop_clone = Arc::clone(&stop);
 
     std::thread::Builder::new()
@@ -368,31 +405,32 @@ pub fn run(source: SoftRebootSource) -> Result<()> {
     // and triggers a class_restart main — killing zygote, system_server, netd
     // and cascading via onrestart triggers to a double-restart loop.
     //
-    // Neutralise this by:
-    //  1. Disabling the zygote critical-window so init doesn't count the
-    //     upcoming stop as a crash within the boot-critical window.
-    //  2. Setting sys.shutdown.requested so PHOENIX recognises that a
-    //     controlled shutdown is in progress.
-    if let Err(e) = rp.set("zygote.critical_window.minute", "off") {
-        warn!("soft_reboot: set zygote.critical_window.minute=off failed: {e}");
-    }
-    if let Err(e) = rp.set("sys.shutdown.requested", "1786-ksu-softreboot") {
-        warn!("soft_reboot: set sys.shutdown.requested failed: {e}");
-    }
+    // CRITICAL: Only apply this on OPlus devices.
+    // Setting `sys.shutdown.requested` on Samsung devices instructs Samsung's
+    // Communication Processor Boot Daemon (`cbd`) that the device is shutting down,
+    // causing it to issue IOCTL_POWER_OFF to the modem and sleep permanently.
+    if is_oplus() {
+        if let Err(e) = rp.set("zygote.critical_window.minute", "off") {
+            warn!("soft_reboot: set zygote.critical_window.minute=off failed: {e}");
+        }
+        if let Err(e) = rp.set("sys.shutdown.requested", "1786-ksu-softreboot") {
+            warn!("soft_reboot: set sys.shutdown.requested failed: {e}");
+        }
 
-    // === OPlus watchdog safety: prepare for framework teardown ===
-    // Re-arm the PMIC watchdog with a 30-second bite timer (default is 7s
-    // which is too short for the stop→restage cycle).
-    rearm_oplus_pmic_watchdog();
-    // Tell the Theia boot-completed monitor that a restart is expected
-    // so it doesn't treat the stopped state as a crash.
-    reset_oplus_boot_completed_monitor();
-    // Inform OPlus shutdown detector that a controlled restart is in progress
-    if Path::new("/proc/shutdown_detect").exists() {
-        let _ = fs::write("/proc/shutdown_detect", "normal");
+        // === OPlus watchdog safety: prepare for framework teardown ===
+        // Re-arm the PMIC watchdog with a 30-second bite timer (default is 7s
+        // which is too short for the stop→restage cycle).
+        rearm_oplus_pmic_watchdog();
+        // Tell the Theia boot-completed monitor that a restart is expected
+        // so it doesn't treat the stopped state as a crash.
+        reset_oplus_boot_completed_monitor();
+        // Inform OPlus shutdown detector that a controlled restart is in progress
+        if Path::new("/proc/shutdown_detect").exists() {
+            let _ = fs::write("/proc/shutdown_detect", "normal");
+        }
+        // One explicit kick right before we stop services
+        kick_oplus_init_watchdog();
     }
-    // One explicit kick right before we stop services
-    kick_oplus_init_watchdog();
 
     // Run `stop` to halt all non-core services
     info!("soft_reboot: running 'stop'");
@@ -651,8 +689,10 @@ fn sanitize_adb_dir_permissions() {
     write_state("phase5_relaunch");
 
     // Re-arm OPlus watchdogs before relaunching services
-    rearm_oplus_pmic_watchdog();
-    kick_oplus_init_watchdog();
+    if is_oplus() {
+        rearm_oplus_pmic_watchdog();
+        kick_oplus_init_watchdog();
+    }
 
     // Run service stage scripts early so background module daemons (vectord, lspd, etc.)
     // register their ServiceManager proxy binders before system_server forks
@@ -675,7 +715,9 @@ fn sanitize_adb_dir_permissions() {
 
     // Clear the shutdown-requested sentinel so init resumes normal PHOENIX
     // monitoring after the framework comes back up.
-    let _ = rp.set("sys.shutdown.requested", "");
+    if is_oplus() {
+        let _ = rp.set("sys.shutdown.requested", "");
+    }
 
     // Wait for PMS package scan completion and boot_completed (90s budget)
     info!("soft_reboot: waiting for PMS scan completion & sys.boot_completed=1 (90s budget)");
@@ -708,7 +750,9 @@ fn sanitize_adb_dir_permissions() {
     wd_stop.store(true, Ordering::Relaxed);
 
     // Signal OPlus that boot is complete again
-    signal_oplus_boot_completed();
+    if is_oplus() {
+        signal_oplus_boot_completed();
+    }
 
     let elapsed = cycle_start.elapsed();
     info!(
@@ -730,6 +774,10 @@ fn rollback_start(reason: &str) -> Result<()> {
     warn!("soft_reboot: ROLLBACK — {reason}, attempting start");
     write_state(&format!("rollback_{reason}"));
 
+    if is_oplus() {
+        let _ = resetprop().set("sys.shutdown.requested", "");
+    }
+
     let _ = Command::new("start").status();
 
     // Wait briefly for boot
@@ -748,6 +796,10 @@ fn rollback_start(reason: &str) -> Result<()> {
 fn rollback_stop_start(reason: &str) -> Result<()> {
     warn!("soft_reboot: ROLLBACK (stop+start) — {reason}");
     write_state(&format!("rollback_retry_{reason}"));
+
+    if is_oplus() {
+        let _ = resetprop().set("sys.shutdown.requested", "");
+    }
 
     let _ = Command::new("stop").status();
     std::thread::sleep(Duration::from_secs(1));
