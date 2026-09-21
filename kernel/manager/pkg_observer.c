@@ -144,6 +144,18 @@ int ksu_observer_init(void)
 	return 0;
 }
 
+int ksu_observer_poll(void)
+{
+	if (g && !g_watch.inode) {
+		if (watch_one_dir(&g_watch) == 0) {
+			pr_info("observer successfully re-attached to /data/system\n");
+			track_throne(false);
+			return 0;
+		}
+	}
+	return -1;
+}
+
 void ksu_observer_exit(void)
 {
 	unwatch_one_dir(&g_watch);

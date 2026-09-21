@@ -19,7 +19,7 @@
  * string-based comparison path; this degrades performance only and
  * does not cause a functional failure.
  */
-static u32 cached_su_sid __read_mostly = 0;
+u32 cached_su_sid __read_mostly = 0;
 static u32 cached_zygote_sid __read_mostly = 0;
 static u32 cached_init_sid __read_mostly = 0;
 u32 ksu_file_sid __read_mostly = 0;
